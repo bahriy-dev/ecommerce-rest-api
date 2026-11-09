@@ -1,6 +1,6 @@
-# ecommerce-api
+# E-commerce REST API
 
-[![CI](https://github.com/bahriy-dev/ecommerce-api/actions/workflows/ci.yml/badge.svg)](https://github.com/bahriy-dev/ecommerce-api/actions/workflows/ci.yml)
+[![CI](https://github.com/bahriy-dev/ecommerce-rest-api/actions/workflows/ci.yml/badge.svg)](https://github.com/bahriy-dev/ecommerce-rest-api/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.18-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-node%3Asqlite-003B57?logo=sqlite&logoColor=white)
@@ -23,8 +23,8 @@ It focuses on the parts that usually go wrong in real shops:
 ## Quick start
 
 ```bash
-git clone https://github.com/bahriy-dev/ecommerce-api.git
-cd ecommerce-api
+git clone https://github.com/bahriy-dev/ecommerce-rest-api.git
+cd ecommerce-rest-api
 npm start      # http://localhost:3000/api/v1 (seeds an admin and 3 demo products)
 npm test       # 27 tests: unit + full HTTP flows
 ```
