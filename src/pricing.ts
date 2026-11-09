@@ -10,6 +10,8 @@ export interface PricedLine {
 
 export interface Totals {
   subtotal: number;
+  /** Coupon discount, already subtracted from `total`. */
+  discount: number;
   vatTotal: number;
   shipping: number;
   total: number;
@@ -28,16 +30,36 @@ export function vatIncluded(grossAmount: number, vatRate: number): number {
   return Math.round((grossAmount * vatRate) / (100 + vatRate));
 }
 
-export function calculateTotals(lines: PricedLine[], shipping: ShippingRule): Totals {
+export interface CouponRule {
+  type: 'percent' | 'fixed';
+  /** Percent (1–100) or a fixed amount in kuruş. */
+  value: number;
+  /** Minimum cart subtotal in kuruş for the coupon to apply. */
+  minSubtotal: number;
+}
+
+/** Discount a coupon gives on a subtotal; never more than the subtotal itself. */
+export function couponDiscount(coupon: CouponRule, subtotal: number): number {
+  if (subtotal < coupon.minSubtotal) return 0;
+  const amount = coupon.type === 'percent' ? Math.round((subtotal * coupon.value) / 100) : coupon.value;
+  return Math.min(amount, subtotal);
+}
+
+export function calculateTotals(lines: PricedLine[], shipping: ShippingRule, coupon: CouponRule | null = null): Totals {
   let subtotal = 0;
-  let vatTotal = 0;
+  let grossVat = 0;
   for (const line of lines) {
     const gross = line.unitPrice * line.quantity;
     subtotal += gross;
-    vatTotal += vatIncluded(gross, line.vatRate);
+    grossVat += vatIncluded(gross, line.vatRate);
   }
-  const shippingFee = subtotal === 0 || subtotal >= shipping.freeOver ? 0 : shipping.fee;
-  return { subtotal, vatTotal, shipping: shippingFee, total: subtotal + shippingFee };
+  const discount = coupon ? couponDiscount(coupon, subtotal) : 0;
+  const net = subtotal - discount;
+  // A discount lowers the taxable amount, so the VAT inside it shrinks proportionally.
+  const vatTotal = subtotal === 0 ? 0 : Math.round((grossVat * net) / subtotal);
+  // Free-shipping threshold is checked against what the customer actually pays for goods.
+  const shippingFee = subtotal === 0 || net >= shipping.freeOver ? 0 : shipping.fee;
+  return { subtotal, discount, vatTotal, shipping: shippingFee, total: net + shippingFee };
 }
 
 /** 249900 → "2.499,00 ₺" */

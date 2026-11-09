@@ -3,6 +3,7 @@ import { HttpError } from '../http.ts';
 import { requireUser } from '../auth.ts';
 import { validate } from '../validate.ts';
 import { calculateTotals } from '../pricing.ts';
+import { appliedCoupon, checkCoupon } from '../coupons.ts';
 import type { AppDeps } from '../app.ts';
 
 export interface CartLine {
@@ -28,13 +29,15 @@ export function loadCart(db: AppDeps['db'], userId: number): CartLine[] {
 export function cartRoutes(r: Router, { db, config }: AppDeps): void {
   const view = (userId: number) => {
     const lines = loadCart(db, userId);
+    const coupon = appliedCoupon(db, userId);
     return {
+      coupon: coupon ? { code: coupon.code, type: coupon.type, value: coupon.value, minSubtotal: coupon.minSubtotal } : null,
       items: lines.map(({ stock, isActive, ...line }) => ({
         ...line,
         lineTotal: line.unitPrice * line.quantity,
         available: Boolean(isActive) && stock >= line.quantity,
       })),
-      totals: calculateTotals(lines, config.shipping),
+      totals: calculateTotals(lines, config.shipping, coupon),
     };
   };
 
@@ -66,6 +69,27 @@ export function cartRoutes(r: Router, { db, config }: AppDeps): void {
   r.delete('/cart', (ctx) => {
     const { id } = requireUser(ctx);
     db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM cart_coupons WHERE user_id = ?').run(id);
+    return view(id);
+  });
+
+  /** Applies a coupon code to the cart. Only one coupon per cart; a new one replaces the old. */
+  r.put('/cart/coupon', (ctx) => {
+    const { id: userId } = requireUser(ctx);
+    const { code } = validate<{ code: string }>(ctx.body, { code: { type: 'string', min: 3, max: 32 } });
+    const coupon = checkCoupon(db, code);
+    const subtotal = loadCart(db, userId).reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
+    if (subtotal < coupon.minSubtotal) {
+      throw new HttpError(409, `Coupon needs a cart subtotal of at least ${coupon.minSubtotal} kuruş`);
+    }
+    db.prepare(`INSERT INTO cart_coupons (user_id, code) VALUES (?, ?)
+                ON CONFLICT (user_id) DO UPDATE SET code = excluded.code`).run(userId, coupon.code);
+    return view(userId);
+  });
+
+  r.delete('/cart/coupon', (ctx) => {
+    const { id } = requireUser(ctx);
+    db.prepare('DELETE FROM cart_coupons WHERE user_id = ?').run(id);
     return view(id);
   });
 }

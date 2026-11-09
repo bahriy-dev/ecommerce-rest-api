@@ -7,6 +7,7 @@ import { authRoutes } from './routes/auth.ts';
 import { catalogRoutes } from './routes/catalog.ts';
 import { cartRoutes } from './routes/cart.ts';
 import { orderRoutes } from './routes/orders.ts';
+import { couponRoutes } from './routes/coupons.ts';
 
 export interface Config {
   jwtSecret: string;
@@ -26,6 +27,7 @@ export function createApp(deps: AppDeps) {
   catalogRoutes(router, deps);
   cartRoutes(router, deps);
   orderRoutes(router, deps);
+  couponRoutes(router, deps);
 
   return async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const started = performance.now();

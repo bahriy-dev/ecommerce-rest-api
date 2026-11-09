@@ -88,7 +88,7 @@ describe('cart & checkout', () => {
     const token = await registerCustomer(app);
     const cart = await app.request('PUT', `/cart/items/${productId('KTP-003')}`, { token, body: { quantity: 1 } });
     assert.equal(cart.status, 200);
-    assert.deepEqual(cart.body.totals, { subtotal: 32000, vatTotal: 0, shipping: 4990, total: 36990 });
+    assert.deepEqual(cart.body.totals, { subtotal: 32000, discount: 0, vatTotal: 0, shipping: 4990, total: 36990 });
   });
 
   it('refuses quantities above stock', async () => {
