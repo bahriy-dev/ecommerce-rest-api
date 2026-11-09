@@ -28,7 +28,7 @@ It focuses on the parts that usually go wrong in real shops:
 git clone https://github.com/bahriy-dev/ecommerce-api.git
 cd ecommerce-api
 npm start      # http://localhost:3000/api/v1 (seeds an admin and 3 demo products)
-npm test       # 36 tests: unit + full HTTP flows
+npm test       # 40 tests: unit + full HTTP flows
 ```
 
 With Docker:
@@ -109,8 +109,10 @@ curl -X PUT localhost:3000/api/v1/cart/coupon -H "Authorization: Bearer $TOKEN" 
   -H 'Content-Type: application/json' -d '{"code":"hosgeldin10"}'
 ```
 
-The cart and the order then show `discount` and `couponCode`. VAT is recalculated on the
-discounted amount, and the free-shipping threshold is checked after the discount.
+The cart and the order then show `discount` and `couponCode`. The discount is spread over the
+cart lines and VAT is recalculated per line on the discounted amount; the free-shipping threshold
+is checked after the discount. If an applied coupon expires, runs out or no longer meets the
+minimum, the cart keeps showing it with `usable: false` and a `reason`, and stops applying it.
 
 Errors always look like `{ "error": "…", "details": { … } }`. Validation errors return `422`
 with one message per field.

@@ -45,18 +45,34 @@ export function couponDiscount(coupon: CouponRule, subtotal: number): number {
   return Math.min(amount, subtotal);
 }
 
-export function calculateTotals(lines: PricedLine[], shipping: ShippingRule, coupon: CouponRule | null = null): Totals {
-  let subtotal = 0;
-  let grossVat = 0;
-  for (const line of lines) {
-    const gross = line.unitPrice * line.quantity;
-    subtotal += gross;
-    grossVat += vatIncluded(gross, line.vatRate);
+/**
+ * Splits `amount` across `weights` proportionally, in whole kuruş, so the parts always add up
+ * to exactly `amount` (largest-remainder method).
+ */
+export function allocate(amount: number, weights: number[]): number[] {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (amount === 0 || total === 0) return weights.map(() => 0);
+  const exact = weights.map((w) => (amount * w) / total);
+  const parts = exact.map(Math.floor);
+  let rest = amount - parts.reduce((a, b) => a + b, 0);
+  const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) {
+    if (rest === 0) break;
+    parts[i]++;
+    rest--;
   }
+  return parts;
+}
+
+export function calculateTotals(lines: PricedLine[], shipping: ShippingRule, coupon: CouponRule | null = null): Totals {
+  const grosses = lines.map((line) => line.unitPrice * line.quantity);
+  const subtotal = grosses.reduce((a, b) => a + b, 0);
   const discount = coupon ? couponDiscount(coupon, subtotal) : 0;
   const net = subtotal - discount;
-  // A discount lowers the taxable amount, so the VAT inside it shrinks proportionally.
-  const vatTotal = subtotal === 0 ? 0 : Math.round((grossVat * net) / subtotal);
+  // The discount lowers each line's taxable amount, so VAT is recalculated per line on the
+  // discounted amount and rounded once (rounding the original VAT first would round twice).
+  const shares = allocate(discount, grosses);
+  const vatTotal = lines.reduce((sum, line, i) => sum + vatIncluded(grosses[i] - shares[i], line.vatRate), 0);
   // Free-shipping threshold is checked against what the customer actually pays for goods.
   const shippingFee = subtotal === 0 || net >= shipping.freeOver ? 0 : shipping.fee;
   return { subtotal, discount, vatTotal, shipping: shippingFee, total: net + shippingFee };
