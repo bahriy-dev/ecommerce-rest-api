@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, registerCustomer, loginAdmin, type TestApp } from './helpers.ts';
-import { couponDiscount, calculateTotals } from '../src/pricing.ts';
+import { couponDiscount, calculateTotals, allocate } from '../src/pricing.ts';
 
 describe('couponDiscount', () => {
   it('applies percent and fixed coupons', () => {
@@ -18,6 +18,24 @@ describe('couponDiscount', () => {
     const lines = [{ unitPrice: 60000, vatRate: 20, quantity: 1 }];
     const t = calculateTotals(lines, { fee: 4990, freeOver: 50000 }, { type: 'percent', value: 20, minSubtotal: 0 });
     assert.deepEqual(t, { subtotal: 60000, discount: 12000, vatTotal: 8000, shipping: 4990, total: 52990 });
+  });
+});
+
+describe('discount VAT', () => {
+  it('splits a discount across lines so the parts add up exactly', () => {
+    assert.deepEqual(allocate(100, [1, 1, 1]), [34, 33, 33]);
+    assert.deepEqual(allocate(0, [5, 5]), [0, 0]);
+    assert.equal(allocate(997, [12000, 3200, 5]).reduce((a, b) => a + b, 0), 997);
+  });
+  it('recalculates VAT on the discounted amount instead of rounding twice', () => {
+    const t = calculateTotals([{ unitPrice: 3, vatRate: 20, quantity: 1 }], { fee: 0, freeOver: 0 }, { type: 'fixed', value: 1, minSubtotal: 0 });
+    assert.equal(t.vatTotal, 0); // VAT inside 2 kuruş at 20% rounds to 0
+  });
+  it('applies each line its own VAT rate after the discount', () => {
+    const lines = [{ unitPrice: 12000, vatRate: 20, quantity: 1 }, { unitPrice: 11000, vatRate: 10, quantity: 1 }, { unitPrice: 5000, vatRate: 0, quantity: 1 }];
+    const t = calculateTotals(lines, { fee: 0, freeOver: 0 }, { type: 'fixed', value: 2800, minSubtotal: 0 });
+    // shares of 2800 over 12000/11000/5000 = 1200/1100/500 → VAT inside 10800 at 20% + 9900 at 10%
+    assert.equal(t.vatTotal, 1800 + 900);
   });
 });
 
@@ -91,12 +109,30 @@ describe('coupons API', () => {
     assert.match(below.body.error, /at least/);
   });
 
+  it('shows an expired or used-up coupon in the cart without applying it', async () => {
+    await createCoupon({ code: 'BITECEK', type: 'fixed', value: 1000, maxUses: 1 });
+    const [a, b] = [await registerCustomer(app), await registerCustomer(app)];
+    for (const token of [a, b]) {
+      await app.request('PUT', `/cart/items/${productId('KTP-003')}`, { token, body: { quantity: 1 } });
+      await app.request('PUT', '/cart/coupon', { token, body: { code: 'BITECEK' } });
+    }
+    assert.equal((await app.request('POST', '/orders', { token: a, body: { shippingAddress: 'Çankaya, Ankara 06420' } })).status, 201);
+
+    const cart = await app.request('GET', '/cart', { token: b });
+    assert.equal(cart.body.coupon.usable, false);
+    assert.match(cart.body.coupon.reason, /usage limit/);
+    assert.equal(cart.body.totals.discount, 0);
+    assert.equal(cart.body.totals.total, 32000 + 4990);
+  });
+
   it('stops working once an admin deactivates it', async () => {
     await createCoupon({ code: 'KAPAT', type: 'fixed', value: 500 });
     const token = await registerCustomer(app);
     await app.request('PUT', `/cart/items/${productId('KTP-003')}`, { token, body: { quantity: 1 } });
     await app.request('PUT', '/cart/coupon', { token, body: { code: 'KAPAT' } });
     assert.equal((await app.request('DELETE', '/coupons/KAPAT', { token: admin })).status, 204);
-    assert.equal((await app.request('GET', '/cart', { token })).body.totals.discount, 0);
+    const cart = await app.request('GET', '/cart', { token });
+    assert.equal(cart.body.totals.discount, 0);
+    assert.equal(cart.body.coupon.usable, false);
   });
 });
