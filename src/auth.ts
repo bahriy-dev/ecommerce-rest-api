@@ -52,7 +52,8 @@ export function verifyToken(token: string, secret: string): TokenPayload | null 
 }
 
 export function bearerToken(header: string | undefined): string | null {
-  const m = /^Bearer\s+(.+)$/i.exec(header ?? '');
+  // Tokens never contain whitespace; \S+ keeps the match linear on long headers.
+  const m = /^Bearer\s+(\S+)\s*$/i.exec(header ?? '');
   return m ? m[1] : null;
 }
 
