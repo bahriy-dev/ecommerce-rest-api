@@ -17,6 +17,8 @@ It focuses on the parts that usually go wrong in real shops:
   `UPDATE … WHERE stock >= ?`. Two customers racing for the last item: one gets the order, the other a `409`.
 - **Safe retries.** `POST /orders` accepts an `Idempotency-Key` header. A double-clicked "Pay" button creates one order.
 - **Correct money.** Prices are integer kuruş, VAT-inclusive, with per-product Turkish VAT (KDV) rates of 0, 1, 10 or 20 %.
+- **Discount coupons.** Percent or fixed-amount codes with minimum cart value, usage limit and
+  expiry. Usage is counted inside the checkout transaction and given back if the order is cancelled.
 - **Order workflow.** `pending → paid → shipped → delivered`, or `cancelled`, which puts the stock back.
 - **Secure auth.** scrypt password hashes, HS256 JWTs verified in constant time, no user enumeration on login.
 
@@ -26,7 +28,7 @@ It focuses on the parts that usually go wrong in real shops:
 git clone https://github.com/bahriy-dev/ecommerce-rest-api.git
 cd ecommerce-rest-api
 npm start      # http://localhost:3000/api/v1 (seeds an admin and 3 demo products)
-npm test       # 27 tests: unit + full HTTP flows
+npm test       # 40 tests: unit + full HTTP flows
 ```
 
 With Docker:
@@ -54,11 +56,16 @@ All routes are under `/api/v1`. Send `Authorization: Bearer <token>` for protect
 | `GET` | `/cart` | user | Cart lines, availability and totals |
 | `PUT` | `/cart/items/:productId` | user | Set quantity (`0` removes) |
 | `DELETE` | `/cart` | user | Empty the cart |
+| `PUT` | `/cart/coupon` | user | Apply a coupon code (`{ "code": "HOSGELDIN10" }`) |
+| `DELETE` | `/cart/coupon` | user | Remove the coupon |
 | `POST` | `/orders` | user | Checkout. Supports `Idempotency-Key` |
 | `GET` | `/orders` | user | My orders (`?all=true` for admins) |
 | `GET` | `/orders/:id` | user | Order detail (owner or admin) |
 | `POST` | `/orders/:id/cancel` | user | Cancel a pending order |
 | `PATCH` | `/orders/:id/status` | admin | Move an order through the workflow |
+| `GET` | `/coupons` | admin | List coupons with usage counts |
+| `POST` | `/coupons` | admin | Create a coupon |
+| `DELETE` | `/coupons/:code` | admin | Deactivate a coupon |
 
 **Product query parameters:** `q`, `category` (slug), `minPrice`, `maxPrice` (kuruş),
 `inStock=true`, `sort` (`newest`, `price_asc`, `price_desc`, `name`), `page`, `limit` (max 100).
@@ -89,6 +96,24 @@ curl -X POST localhost:3000/api/v1/orders -H "Authorization: Bearer $TOKEN" \
 }
 ```
 
+### Example: coupon
+
+```bash
+# admin: 10% off orders of 500 TL or more, 1000 uses, valid until the end of the year
+curl -X POST localhost:3000/api/v1/coupons -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"HOSGELDIN10","type":"percent","value":10,"minSubtotal":50000,"maxUses":1000,"expiresAt":"2026-12-31T23:59:59+03:00"}'
+
+# customer
+curl -X PUT localhost:3000/api/v1/cart/coupon -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"code":"hosgeldin10"}'
+```
+
+The cart and the order then show `discount` and `couponCode`. The discount is spread over the
+cart lines and VAT is recalculated per line on the discounted amount; the free-shipping threshold
+is checked after the discount. If an applied coupon expires, runs out or no longer meets the
+minimum, the cart keeps showing it with `usable: false` and a `reason`, and stops applying it.
+
 Errors always look like `{ "error": "…", "details": { … } }`. Validation errors return `422`
 with one message per field.
 
@@ -113,8 +138,9 @@ src/
   auth.ts        scrypt passwords, JWT, role guards
   validate.ts    tiny schema validator (422 with per-field errors)
   db.ts          schema migrations (PRAGMA user_version), transactions, seed data
-  pricing.ts     VAT, shipping and totals in integer kuruş
-  routes/        auth, catalog, cart, orders
+  pricing.ts     VAT, coupon discounts, shipping and totals in integer kuruş
+  coupons.ts     coupon lookup and validity checks (expiry, usage limit)
+  routes/        auth, catalog, cart, orders, coupons
   app.ts         wiring, CORS, error handling
 test/            node:test unit tests and end-to-end HTTP tests
 ```
