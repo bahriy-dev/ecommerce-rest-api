@@ -1,10 +1,13 @@
 {
-  "name": "ecommerce-api",
+  "name": "ecommerce-rest-api",
   "version": "1.0.0",
   "description": "E-commerce REST API: products, cart, checkout and orders with JWT auth, Turkish VAT (KDV) pricing and stock-safe checkout. Zero dependencies, Node.js + SQLite.",
   "type": "module",
   "license": "MIT",
   "author": "Bahri YILMAZ (https://bahriyilmaz.dev)",
+  "repository": { "type": "git", "url": "git+https://github.com/bahriy-dev/ecommerce-rest-api.git" },
+  "homepage": "https://github.com/bahriy-dev/ecommerce-rest-api#readme",
+  "bugs": "https://github.com/bahriy-dev/ecommerce-rest-api/issues",
   "engines": { "node": ">=22.18" },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.ts",
