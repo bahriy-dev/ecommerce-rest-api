@@ -59,6 +59,24 @@ const MIGRATIONS: string[] = [
      quantity   INTEGER NOT NULL,
      PRIMARY KEY (order_id, product_id)
    );`,
+  // 2: discount coupons
+  `CREATE TABLE coupons (
+     code         TEXT PRIMARY KEY COLLATE NOCASE,
+     type         TEXT NOT NULL CHECK (type IN ('percent', 'fixed')),
+     value        INTEGER NOT NULL CHECK (value > 0),
+     min_subtotal INTEGER NOT NULL DEFAULT 0,
+     max_uses     INTEGER,
+     used_count   INTEGER NOT NULL DEFAULT 0,
+     expires_at   TEXT,
+     is_active    INTEGER NOT NULL DEFAULT 1,
+     CHECK (type = 'fixed' OR value <= 100)
+   );
+   CREATE TABLE cart_coupons (
+     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+     code    TEXT NOT NULL REFERENCES coupons(code) ON DELETE CASCADE
+   );
+   ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE orders ADD COLUMN coupon_code TEXT;`,
 ];
 
 export function openDb(path = ':memory:'): Db {

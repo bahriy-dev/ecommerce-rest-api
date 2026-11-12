@@ -5,6 +5,7 @@ import { validate, intParam } from '../validate.ts';
 import { transaction } from '../db.ts';
 import { calculateTotals } from '../pricing.ts';
 import { loadCart } from './cart.ts';
+import { appliedCoupon, checkCoupon } from '../coupons.ts';
 import type { AppDeps } from '../app.ts';
 
 export const ORDER_STATUSES = ['pending', 'paid', 'shipped', 'delivered', 'cancelled'] as const;
@@ -24,6 +25,8 @@ interface OrderRow {
   userId: number;
   status: Status;
   subtotal: number;
+  discount: number;
+  couponCode: string | null;
   vatTotal: number;
   shipping: number;
   total: number;
@@ -31,7 +34,8 @@ interface OrderRow {
   createdAt: string;
 }
 
-const ORDER_COLUMNS = `id, user_id AS userId, status, subtotal, vat_total AS vatTotal, shipping, total,
+const ORDER_COLUMNS = `id, user_id AS userId, status, subtotal, discount, coupon_code AS couponCode,
+  vat_total AS vatTotal, shipping, total,
   shipping_address AS shippingAddress, created_at AS createdAt`;
 
 export function orderRoutes(r: Router, { db, config }: AppDeps): void {
@@ -77,17 +81,28 @@ export function orderRoutes(r: Router, { db, config }: AppDeps): void {
       }
       if (Object.keys(problems).length) throw new HttpError(409, 'Some items are out of stock', problems);
 
-      const totals = calculateTotals(lines, config.shipping);
+      // Re-check the coupon inside the transaction: it may have expired or run out since it was applied.
+      const applied = appliedCoupon(db, userId);
+      const coupon = applied ? checkCoupon(db, applied.code) : null;
+      const totals = calculateTotals(lines, config.shipping, coupon);
+      if (coupon && totals.discount > 0) {
+        const { changes } = db
+          .prepare('UPDATE coupons SET used_count = used_count + 1 WHERE code = ? AND (max_uses IS NULL OR used_count < max_uses)')
+          .run(coupon.code);
+        if (!changes) throw new HttpError(409, 'Coupon usage limit reached');
+      }
       const { lastInsertRowid } = db
-        .prepare(`INSERT INTO orders (user_id, subtotal, vat_total, shipping, total, shipping_address, idempotency_key)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(userId, totals.subtotal, totals.vatTotal, totals.shipping, totals.total, shippingAddress, idempotencyKey);
+        .prepare(`INSERT INTO orders (user_id, subtotal, discount, coupon_code, vat_total, shipping, total, shipping_address, idempotency_key)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(userId, totals.subtotal, totals.discount, totals.discount > 0 ? coupon!.code : null,
+          totals.vatTotal, totals.shipping, totals.total, shippingAddress, idempotencyKey);
       const id = Number(lastInsertRowid);
 
       const item = db.prepare('INSERT INTO order_items (order_id, product_id, name, unit_price, vat_rate, quantity) VALUES (?, ?, ?, ?, ?, ?)');
       for (const line of lines) item.run(id, line.productId, line.name, line.unitPrice, line.vatRate, line.quantity);
 
       db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM cart_coupons WHERE user_id = ?').run(userId);
       return id;
     });
 
@@ -142,6 +157,9 @@ export function orderRoutes(r: Router, { db, config }: AppDeps): void {
         db.prepare(`UPDATE products SET stock = stock + (
                       SELECT quantity FROM order_items WHERE order_id = ? AND product_id = products.id)
                     WHERE id IN (SELECT product_id FROM order_items WHERE order_id = ?)`).run(id, id);
+        // Give the coupon use back so the customer can use it again.
+        db.prepare(`UPDATE coupons SET used_count = used_count - 1
+                    WHERE code = (SELECT coupon_code FROM orders WHERE id = ?) AND used_count > 0`).run(id);
       }
     });
   }
