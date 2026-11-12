@@ -67,7 +67,8 @@ export function createApp(deps: AppDeps) {
       }
     } finally {
       if (process.env.LOG_REQUESTS === '1') {
-        console.log(`${req.method} ${req.url} ${res.statusCode} ${(performance.now() - started).toFixed(1)}ms`);
+        // JSON.stringify escapes control characters so a crafted URL cannot forge log lines.
+        console.log(`${req.method} ${JSON.stringify(req.url ?? '')} ${res.statusCode} ${(performance.now() - started).toFixed(1)}ms`);
       }
     }
   };
